@@ -3,7 +3,7 @@
 clear
 BINARY_NAME="fizz"
 VERSION="latest"
-FIZZUP_VERSION="v1.0.0"
+FIZZUP_VERSION="v1.1.2"
 
 # Fizz variables
 GATEWAY_ADDRESS="provider.gpufarm.xyz" # Provider domain: example = provider.devnetcsphn.com
@@ -11,17 +11,18 @@ GATEWAY_PROXY_PORT="8553" # Proxyport = 8553
 GATEWAY_WEBSOCKET_PORT="8544" # ws url of the gateway example= ws://provider.devnetcsphn.com:8544
 CPU_PRICE="12"
 CPU_UNITS="16"
-MEMORY_PRICE="6.4"
-MEMORY_UNITS="64"
-STORAGE_PRICE="20"
+MEMORY_PRICE="3.6"
+MEMORY_UNITS="36"
+STORAGE_PRICE="11"
 WALLET_ADDRESS="0x4773B2577E2166eE3f7e21381f4EcF6A7535fbB1" 
 USER_TOKEN="0x39a4f10f7199d6764e3939a9db779d88b17d4a47cd2459e1f3d6276ff917aa50563a16d0dfbac5a35bf52703d733e5ce3acaca3810ed431bd135f6334808785201"
-STORAGE_UNITS="2000"
+STORAGE_UNITS="1100"
 GPU_MODEL="rtx3060ti"
 GPU_UNITS="1"
-GPU_PRICE="65"
+GPU_PRICE="41.76"
 GPU_MEMORY=""
 GPU_ID="17"
+OS_ID="linux"
 
 # Function to detect the operating system
 detect_os() {
@@ -40,6 +41,69 @@ detect_os() {
 }
 
 OS=$(detect_os)
+
+# Add OS verification check
+if [ "$OS" != "$OS_ID" ]; then
+    echo "Error: OS mismatch. Your system is running '$OS' but OS_ID is set to '$OS_ID'"
+    exit 1
+fi
+
+get_mac_chip_info() {
+    if [[ "$(uname -s)" != "Darwin" ]]; then
+        echo "unknown"
+        return
+    fi
+
+    local arch=$(uname -m)
+    if [[ "$arch" != "arm64" ]]; then
+        echo "intel"
+        return
+    fi
+
+    local chip_info=""
+    
+    chip_info=$(sysctl -n machdep.cpu.brand_string 2>/dev/null)
+    
+    if [[ -z "$chip_info" || "$chip_info" != *"Apple"* ]]; then
+        chip_info=$(system_profiler SPHardwareDataType 2>/dev/null | grep "Chip" | awk -F': ' '{print $2}')
+    fi
+
+    # Parse the chip information
+    if [[ "$chip_info" == *"M3 Max"* ]]; then
+        echo "m3max"
+    elif [[ "$chip_info" == *"M3 Pro"* ]]; then
+        echo "m3pro"
+    elif [[ "$chip_info" == *"M3 Ultra"* ]]; then
+        echo "m3ultra"
+    elif [[ "$chip_info" == *"M3"* ]]; then
+        echo "m3"
+    elif [[ "$chip_info" == *"M2 Max"* ]]; then
+        echo "m2max"
+    elif [[ "$chip_info" == *"M2 Pro"* ]]; then
+        echo "m2pro"
+    elif [[ "$chip_info" == *"M2 Ultra"* ]]; then
+        echo "m2ultra"
+    elif [[ "$chip_info" == *"M2"* ]]; then
+        echo "m2"
+    elif [[ "$chip_info" == *"M1 Max"* ]]; then
+        echo "m1max"
+    elif [[ "$chip_info" == *"M1 Pro"* ]]; then
+        echo "m1pro"
+    elif [[ "$chip_info" == *"M1 Ultra"* ]]; then
+        echo "m1ultra"
+    elif [[ "$chip_info" == *"M1"* ]]; then
+        echo "m1"
+    elif [[ "$chip_info" == *"M4 Max"* ]]; then
+        echo "m4max"
+    elif [[ "$chip_info" == *"M4 Pro"* ]]; then
+        echo "m4pro"
+    elif [[ "$chip_info" == *"M4"* ]]; then
+        echo "m4"
+    fi
+}
+
+CPU_MODEL=$(get_mac_chip_info)
+
 ARCH="$(uname -m)"
 # Function to display system information
 display_system_info() {
@@ -94,85 +158,6 @@ display_system_info() {
     
 }
 
-# Function to check bandwidth
-check_bandwidth() {
-    echo "Checking bandwidth..."
-    if ! command -v speedtest-cli &> /dev/null; then
-        echo "speedtest-cli not found. Installing..."
-        case $OS in
-            macos)
-                brew install speedtest-cli
-                ;;
-            linux|wsl)
-                if command -v apt-get &> /dev/null; then
-                    sudo apt-get update && sudo apt-get install -y speedtest-cli
-                elif command -v yum &> /dev/null; then
-                    sudo yum install -y speedtest-cli
-                elif command -v dnf &> /dev/null; then
-                    sudo dnf install -y speedtest-cli
-                else
-                    echo "Unable to install speedtest-cli. Please install it manually."
-                    return 1
-                fi
-                ;;
-            *)
-                echo "Unsupported OS for automatic speedtest-cli installation. Please install it manually."
-                return 1
-                ;;
-        esac
-    fi
-
-    # Run speedtest and capture results
-    result=$(speedtest-cli 2>&1)
-    if echo "$result" | grep -q "ERROR"; then
-        echo "Error running speedtest: $result"
-        BANDWIDTH_RANGE="NA"
-    else
-        download=$(echo "$result" | grep "Download" | awk '{print $2}')
-        upload=$(echo "$result" | grep "Upload" | awk '{print $2}')
-
-        if [[ -z "$download" || -z "$upload" ]]; then
-            echo "Error: Could not parse download or upload speed"
-            BANDWIDTH_RANGE="NA"
-        else
-            echo "Download speed: $download Mbit/s"
-            echo "Upload speed: $upload Mbit/s"
-
-            # Determine bandwidth range
-            total_speed=$(echo "$download + $upload" | bc 2>/dev/null)
-            if [[ $? -ne 0 || -z "$total_speed" ]]; then
-                echo "Error: Could not calculate total speed"
-                BANDWIDTH_RANGE="NA"
-            else
-                if (( $(echo "$total_speed < 50" | bc -l) )); then
-                    BANDWIDTH_RANGE="10mbps"
-                elif (( $(echo "$total_speed < 100" | bc -l) )); then
-                    BANDWIDTH_RANGE="50mbps"
-                elif (( $(echo "$total_speed < 200" | bc -l) )); then
-                    BANDWIDTH_RANGE="100mbps"
-                elif (( $(echo "$total_speed < 300" | bc -l) )); then
-                    BANDWIDTH_RANGE="200mbps"
-                elif (( $(echo "$total_speed < 400" | bc -l) )); then
-                    BANDWIDTH_RANGE="300mbps"
-                elif (( $(echo "$total_speed < 500" | bc -l) )); then
-                    BANDWIDTH_RANGE="400mbps"
-                elif (( $(echo "$total_speed < 1000" | bc -l) )); then
-                    BANDWIDTH_RANGE="500mbps"
-                elif (( $(echo "$total_speed < 5000" | bc -l) )); then
-                    BANDWIDTH_RANGE="1gbps"
-                elif (( $(echo "$total_speed < 10000" | bc -l) )); then
-                    BANDWIDTH_RANGE="5gbps"
-                elif (( $(echo "$total_speed >= 10000" | bc -l) )); then
-                    BANDWIDTH_RANGE="10gbps"
-                else
-                    BANDWIDTH_RANGE="NA"
-                fi
-            fi
-        fi
-    fi
-
-    echo "Bandwidth range: $BANDWIDTH_RANGE"
-}
 
 echo "========================================================================================================================"
 echo ""
@@ -193,22 +178,43 @@ echo ""
 echo "$BINARY_NAME Version: $VERSION"
 echo ""
 
-# Check for 'info' flag
-if [ "$1" == "info" ]; then
-    display_system_info
-    check_bandwidth
-    exit 0
-fi
-
-display_system_info 
-check_bandwidth
-
 # Detect if an Nvidia GPU is present (only for Linux or WSL)
 if [ "$OS" = "linux" ] || [ "$OS" = "wsl" ]; then
-    NVIDIA_PRESENT=$(lspci | grep -i nvidia || true)
+    NVIDIA_PRESENT=$(if command -v nvidia-smi >/dev/null && nvidia-smi >/dev/null 2>&1; then echo "true"; elif lspci | grep -i nvidia >/dev/null 2>&1; then echo "true"; else echo ""; fi)
 else
     NVIDIA_PRESENT=""
 fi
+
+test_gpu_container() {
+    if [ -z "$NVIDIA_PRESENT" ]; then
+        return
+    fi
+
+    echo "Testing GPU container creation..."
+    
+    # Try to run a simple NVIDIA GPU test container
+    if ! docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi; then
+        echo "ERROR: Failed to create GPU container. Please check your NVIDIA driver and Docker installation."
+        echo "Make sure nvidia-docker2 is installed and Docker service is configured to use the NVIDIA runtime."
+        echo "You may need to restart Docker service after installing nvidia-docker2."
+        exit 1
+    fi
+    
+    echo "GPU container test successful!"
+}
+
+# Check for 'info' flag
+if [ "$1" == "info" ]; then
+    display_system_info
+    exit 0
+elif [ "$1" == "test-gpu" ]; then
+    test_gpu_container
+    exit 0
+fi
+
+
+
+display_system_info 
 
 check_install_nvidia_toolkit() {
     if [ "$OS" = "macos" ]; then
@@ -325,7 +331,8 @@ check_and_update_cuda() {
     else
         echo "CUDA is not installed or not found in the expected locations."
     fi
-
+    export CUDA_VERSION=$cuda_version
+    export NVIDIA_DRIVER_VERSION=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -n 1)
     # Installation process (unchanged)
     case $OS in
         linux)
@@ -541,6 +548,8 @@ install_nvidia_docker() {
 
 install_nvidia_docker
 
+test_gpu_container
+
 # Check and disable ECC
 check_and_disable_ecc() {
     if [ -z "$NVIDIA_PRESENT" ]; then
@@ -644,8 +653,6 @@ verify_gpu_info() {
                 echo "Updated GPU_MODEL: $GPU_MODEL"
                 echo "Updated GPU_UNITS: $GPU_UNITS"
                 echo "Updated GPU_MEMORY: $GPU_MEMORY GiB"
-            else
-                echo "GPU model does not contain 'gpu'. Skipping GPU_MODEL, GPU_UNITS, and GPU_MEMORY update."
             fi
         else
             echo "No NVIDIA GPU detected."
@@ -724,6 +731,7 @@ else
 fi
 
 
+
 # Create config file
 mkdir -p ~/.spheron/fizz
 mkdir -p ~/.spheron/fizz-manifests
@@ -735,7 +743,7 @@ version: '2.2'
 
 services:
   fizz:
-    image: spheronnetwork/unstable-fizz:latest
+    image: spheronnetwork/fizz
     network_mode: "host"
     privileged: true
     cpus: 1
@@ -757,8 +765,10 @@ services:
       - GPU_UNITS=$GPU_UNITS
       - GPU_PRICE=$GPU_PRICE
       - GPU_MEMORY=$GPU_MEMORY 
-      - BANDWIDTH_RANGE=$BANDWIDTH_RANGE
       - FIZZUP_VERSION=$FIZZUP_VERSION
+      - CUDA_VERSION=$CUDA_VERSION
+      - NVIDIA_DRIVER_VERSION=$NVIDIA_DRIVER_VERSION
+      - CPU_MODEL=$CPU_MODEL
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ~/.spheron/fizz-manifests:/.spheron/fizz-manifests
@@ -769,11 +779,11 @@ services:
 EOF
 
 # Check if the Docker image exists and remove it if present
-if docker image inspect spheronnetwork/unstable-fizz:latest >/dev/null 2>&1; then
+if docker image inspect spheronnetwork/fizz >/dev/null 2>&1; then
     echo "Removing existing Docker image..."
-    docker rmi -f spheronnetwork/unstable-fizz:latest
+    docker rmi -f spheronnetwork/fizz
 else
-    echo "Docker image 'spheronnetwork/unstable-fizz:latest' not found. Skipping removal."
+    echo "Docker image 'spheronnetwork/fizz' not found. Skipping removal."
 fi
 
 if ! docker info >/dev/null 2>&1; then
